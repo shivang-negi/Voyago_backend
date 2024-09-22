@@ -9,6 +9,7 @@ const app = express();
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import 'dotenv/config';
+
 import { login_status, signup_status, status } from './utils/status.js';
 import addPost from './db/Posts/addPost.js';
 import getPosts from './db/Posts/getPosts.js';
@@ -17,6 +18,10 @@ import removeLike from './db/Likes/removeLike.js';
 import fetchPost from './db/Posts/fetchPost.js';
 import createComment from './db/Comments/createComment.js';
 import getComments from './db/Comments/getComments.js';
+
+import passport from 'passport';
+import GoogleStrategy from 'passport-google-oauth20';
+import session from 'express-session';
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -30,6 +35,85 @@ app.use(express.urlencoded({ extended: true }))
 app.use(express.static('public'));
 app.use(limiter)
 
+app.use(session({
+    secret: 'your-secret-key',  // Replace this with a secure key in production
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: false, // Set to true if you're using HTTPS in production
+    }
+}));
+
+app.use(passport.initialize());
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: '/auth/google/callback',
+    scope: ['profile', 'email']
+  }, (accessToken, refreshToken, profile, done) => {
+    
+    try {
+        if (!profile || !profile.emails || !profile.emails.length) 
+          return done(new Error("No profile or email found"), null); // Error case
+        
+        const user = {
+          id: profile.id,
+          name: profile.displayName,
+          email: profile.emails[0].value,
+        };
+        
+        done(null, user);   // No errors, pass the user object to done
+      } catch (err) {
+        done(err, null);
+      }
+  }));
+
+passport.serializeUser((user, done) => {
+  done(null, user);
+});
+  
+passport.deserializeUser((user, done) => {
+    done(null, user);
+});
+  
+app.get('/auth/google/callback',
+    passport.authenticate('google', { failureRedirect: '/loginFail', failureMessage: true }),
+    async (req, res) => {
+
+      const user = req.user;
+      let user_id;
+
+      const userExists = await fetchUser(user.email);
+      if(userExists.result === status.SUCCESS) {
+        if(userExists.data === null) {
+            const userValue = await addUser(user.name,user.email,
+                "temp_password",
+                user.birthday
+            )
+
+            if(userValue.status === signup_status.FAILURE) res.send("Error checking database");
+            user_id = userValue.user_data._id;
+        }
+        else user_id = userExists.data._id;
+      }
+      else res.send("Error checking database.");
+      
+      const token = jwt.sign({ name: user.name, email: user.email }, process.env.SECRET_KEY, {
+        expiresIn: '7d',
+      });
+
+      console.log(user_id);
+      
+      res.cookie('jwt', token);
+      res.cookie('email', user.email);
+      res.cookie('name', user.name);
+      res.cookie('id',user_id.toString());
+
+      res.redirect('http://localhost:3000/oauthlogin')
+    }
+  );
+  
 
 app.use((req, res, next) => {
     console.log('Request URL:', req.originalUrl);
