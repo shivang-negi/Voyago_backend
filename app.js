@@ -36,11 +36,11 @@ app.use(express.static('public'));
 app.use(limiter)
 
 app.use(session({
-    secret: 'your-secret-key',  // Replace this with a secure key in production
+    secret: 'your-secret-key', 
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false, // Set to true if you're using HTTPS in production
+        secure: false,
     }
 }));
 
